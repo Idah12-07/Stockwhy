@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+data/generated/
+scripts/_truth/
+logs/*
+!logs/.gitkeep
+.venv/

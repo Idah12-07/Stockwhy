@@ -1,0 +1,11 @@
+---
+description: Project conventions for StockWhy
+alwaysApply: true
+---
+- Never hardcode outputs. Every conclusion must be computed from the data at run time.
+- The agent code under app/ must never read scripts/_truth/ or any planted-cause file.
+- Keep the repo light: no data files over 5 MB; generated data stays in data/generated/ (git-ignored).
+- Every agent step writes an event to the trace (app/trace.py).
+- Sponsor clients live in app/tools/ and keep the same interface as the offline adapter.
+- Never commit keys. Use .env (git-ignored) and keep .env.example placeholders only.
+- Keep main runnable: run `python scripts/evaluate.py` before merging.

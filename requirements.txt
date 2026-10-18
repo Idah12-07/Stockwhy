@@ -1,0 +1,4 @@
+# The baseline runs on the Python standard library only (Python 3.10+).
+# Add sponsor SDKs here as you integrate them, pinned to exact versions.
+python-dotenv>=1.0
+requests>=2.31
