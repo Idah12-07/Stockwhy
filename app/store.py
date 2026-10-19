@@ -35,6 +35,10 @@ class LocalStore:
         self.db.commit()
         self._lock = threading.Lock()  # branches run in parallel; one query at a time on the shared connection
 
+    def t(self, table):
+        """Table name as the SQL should write it (Zetaris needs <source>.<table>)."""
+        return table
+
     def query(self, sql, params=()):
         with self._lock:
             return [dict(r) for r in self.db.execute(sql, params).fetchall()]
@@ -46,5 +50,5 @@ class LocalStore:
 def get_store(data_dir, mode="offline"):
     if mode == "live":
         from .tools.zetaris_client import ZetarisStore
-        return ZetarisStore()
+        return ZetarisStore(data_dir)
     return LocalStore(data_dir)

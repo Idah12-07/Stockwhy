@@ -25,14 +25,18 @@ def _km(a, b):
 def draft(store, ctx, verdict):
     top = verdict["ranked"][0]
     prev = shift(ctx["month"], -1)
-    coords = {r["facility_id"]: (r["lat"], r["lon"]) for r in store.query("SELECT * FROM facilities")}
-    base_rows = store.query("SELECT AVG(consumed) a FROM stock WHERE facility_id=? AND commodity=? AND month IN (?,?,?)",
-                            (ctx["facility_id"], ctx["commodity"], shift(ctx["month"], -1), shift(ctx["month"], -2), shift(ctx["month"], -3)))
+    coords = {r["facility_id"]: (r["lat"], r["lon"]) for r in store.query(f"SELECT * FROM {store.t('facilities')}")}
+    three = [shift(ctx["month"], -k) for k in (1, 2, 3)]
+    base_rows = store.query(f"SELECT AVG(consumed) AS a FROM {store.t('stock')} WHERE facility_id=? AND commodity=? AND month IN (?,?,?)",
+                            (ctx["facility_id"], ctx["commodity"], *three))
     normal = base_rows[0]["a"] or 0
-    peers = store.query(
-        "SELECT s.id, s.facility_id, s.closing, (SELECT AVG(consumed) FROM stock x WHERE x.facility_id=s.facility_id AND x.commodity=s.commodity AND x.month IN (?,?,?)) AS avg_use "
-        "FROM stock s WHERE s.commodity=? AND s.month=? AND s.facility_id<>?",
-        (shift(prev, -1), shift(prev, -2), shift(prev, -3), ctx["commodity"], prev, ctx["facility_id"]))
+    prev3 = [shift(prev, -k) for k in (1, 2, 3)]
+    use = {r["facility_id"]: r["avg_use"] for r in store.query(
+        f"SELECT facility_id, AVG(consumed) AS avg_use FROM {store.t('stock')} WHERE commodity=? AND month IN (?,?,?) GROUP BY facility_id",
+        (ctx["commodity"], *prev3))}
+    peers = [{**r, "avg_use": use.get(r["facility_id"])} for r in store.query(
+        f"SELECT id, facility_id, closing FROM {store.t('stock')} WHERE commodity=? AND month=? AND facility_id<>?",
+        (ctx["commodity"], prev, ctx["facility_id"]))]
     options = []
     for p in peers:
         if p["avg_use"] and p["closing"] / p["avg_use"] >= 1.2:

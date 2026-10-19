@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StockWhy: why did we run out?</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--mute:#5a6472;--line:#e3e6eb;--brand:#4f46e5;--ok:#0f8a4f;--warn:#b45309;--bad:#b42318;--bar:#c7d2fe}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#171b23;--ink:#e8ebf0;--mute:#9aa4b2;--line:#2a303b;--brand:#8b93ff;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--bar:#3b3f86}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:18px 24px;border-bottom:1px solid var(--line);background:var(--card);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+h1{font-size:20px;margin:0}header .sub{color:var(--mute);font-size:13px}
+.pill{font-size:12px;border:1px solid var(--line);border-radius:99px;padding:2px 10px;color:var(--mute)}
+main{max-width:1100px;margin:0 auto;padding:20px;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.card h2{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+label{display:block;font-size:13px;color:var(--mute);margin-bottom:6px}
+select,textarea,button{font:inherit;color:inherit}
+select{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
+button{cursor:pointer;border:1px solid var(--line);background:var(--card);padding:9px 16px;border-radius:8px}
+button.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:default}button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.row{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+.badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600}
+.high{background:rgba(15,138,79,.15);color:var(--ok)}.medium{background:rgba(180,83,9,.15);color:var(--warn)}.low{background:rgba(180,35,24,.15);color:var(--bad)}
+.cause{margin:10px 0}.cause .top{display:flex;justify-content:space-between;gap:8px;font-weight:600}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:4px}.bar>i{display:block;height:100%;background:var(--brand)}
+.ev{margin:8px 0 0 0;padding-left:18px;color:var(--ink);font-size:14px}.ev li{margin:3px 0}
+.chip{font:12px ui-monospace,Consolas,monospace;border:1px solid var(--line);border-radius:6px;padding:1px 6px;background:var(--bg);cursor:pointer;color:var(--brand)}
+.src{font:12px ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px;white-space:pre-wrap;overflow:auto}
+textarea{width:100%;min-height:110px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
+.banner{padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:14px}.banner.warn{background:rgba(180,83,9,.12);color:var(--warn)}.banner.bad{background:rgba(180,35,24,.12);color:var(--bad)}.banner.ok{background:rgba(15,138,79,.12);color:var(--ok)}
+.steps{list-style:none;margin:0;padding:0}.steps li{display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);color:var(--mute)}
+.steps li.on{color:var(--ink)}.dot{width:10px;height:10px;border-radius:50%;background:var(--line);margin-top:6px;flex:none}.on .dot{background:var(--ok)}
+.muted{color:var(--mute);font-size:13px}.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>StockWhy</h1><div class="sub">Why did this facility run out of a medicine, and what should we do?</div></div>
+  <span class="pill" id="pBackend">connecting…</span><span class="pill" id="pMemory"></span><span class="pill">synthetic data</span>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <h2>1. Choose a stock-out</h2>
+      <label for="pick">Facilities that reported running out (longest first)</label>
+      <select id="pick"></select>
+      <div class="row"><button class="primary" id="go" disabled>Investigate</button><span class="muted" id="status"></span></div>
+    </div>
+    <div id="out" class="hidden">
+      <div class="card" id="head"></div>
+      <div class="card"><h2>2. Likely causes (evidence-weighted estimates, not statistics)</h2><div id="causes"></div><p class="muted" id="ruled"></p></div>
+      <div class="card hidden" id="memCard"><h2>Case memory</h2><div id="mem"></div></div>
+      <div class="card hidden" id="actCard"><h2>3. Draft action: needs your decision</h2>
+        <textarea id="memo" readonly aria-label="Draft memo"></textarea>
+        <p class="muted" id="fix"></p>
+        <div class="row"><button id="edit">Edit</button><button class="primary" id="approve">Approve</button><button id="reject">Reject</button><span class="muted" id="decided"></span></div>
+        <p class="muted">Nothing is sent anywhere. Approving only records your decision.</p></div>
+    </div>
+  </section>
+  <aside>
+    <div class="card"><h2>What the agents did</h2>
+      <ul class="steps" id="steps">
+        <li data-a="planner"><span class="dot"></span><span><b>Planner</b><br><span class="muted">checks the stock-out, lists 7 hypotheses</span></span></li>
+        <li data-a="investigators"><span class="dot"></span><span><b>Investigators</b><br><span class="muted" id="invTxt">7 parallel checks</span></span></li>
+        <li data-a="critic"><span class="dot"></span><span><b>Critic</b><br><span class="muted" id="critTxt">ranks causes, scores confidence</span></span></li>
+        <li data-a="drafter"><span class="dot"></span><span><b>Action drafter</b><br><span class="muted">drafts a transfer and requisition</span></span></li>
+      </ul>
+    </div>
+  </aside>
+</main>
+<script>
+const $=id=>document.getElementById(id);let cur=null;
+const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e};
+async function api(path,opt){const r=await fetch(path,opt);return r.json()}
+async function init(){
+  const o=await api('/api/options');
+  $('pBackend').textContent='data: '+o.backend;$('pMemory').textContent=o.memory?('memory: '+o.memory):'memory: off';
+  const pick=$('pick');o.stockouts.forEach((s,i)=>{const op=el('option','',`${s.facility_id} · ${s.commodity} · ${s.month} · ${s.reported_stockout_days} days`);op.value=i;pick.appendChild(op)});
+  window._opts=o.stockouts;$('go').disabled=!o.stockouts.length;
+  if(!o.stockouts.length)$('status').textContent='No stock-outs found in this dataset.';
+}
+function lightSteps(events){
+  const seen=new Set(events.map(e=>e.event));const on=(a,v)=>document.querySelector(`[data-a=${a}]`).classList.toggle('on',v);
+  on('planner',seen.has('plan'));on('investigators',seen.has('branch_done'));on('critic',seen.has('verdict'));on('drafter',seen.has('done'));
+  const n=events.filter(e=>e.event==='branch_done').length,r=events.filter(e=>e.event==='branch_retry').length;
+  $('invTxt').textContent=`${n} checks finished`+(r?`, ${r} retried`:'');
+  $('critTxt').textContent=seen.has('revision')?'re-checked a close call once':'ranked causes, scored confidence';
+}
+async function run(){
+  const s=window._opts[$('pick').value];$('go').disabled=true;$('status').textContent='Investigating…';
+  const d=await api('/api/investigate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s)});
+  $('go').disabled=false;$('status').textContent='';cur=d;render(d,s);
+}
+function render(d,s){
+  const r=d.result;$('out').classList.remove('hidden');lightSteps(d.events);$('decided').textContent='';
+  const head=$('head');head.replaceChildren(el('h2','', 'Question'));
+  head.appendChild(el('div','',`Why did ${s.facility_id} run out of ${s.commodity} in ${s.month}?`)).style.fontWeight='600';
+  if(r.status==='nothing_to_investigate'){head.appendChild(el('p','muted',r.reason));$('causes').replaceChildren();$('actCard').classList.add('hidden');$('memCard').classList.add('hidden');return}
+  const v=r.verdict;const b=el('span','badge '+v.confidence,'confidence: '+v.confidence);
+  const line=el('p','muted',`Reported ${r.plan.reported_stockout_days} stock-out day(s). `);line.appendChild(b);
+  if(r.revised)line.appendChild(document.createTextNode(' Evidence was re-checked once over a wider window.'));head.appendChild(line);
+  if(v.escalate)head.appendChild(el('div','banner bad','Escalated to a human: the evidence does not clearly explain this stock-out, so no action was drafted.'));
+  if(r.failed_branches&&r.failed_branches.length)head.appendChild(el('div','banner warn','Some checks failed: '+r.failed_branches.join(', ')));
+  const box=$('causes');box.replaceChildren();
+  v.ranked.filter(x=>x.score>0.05).slice(0,4).forEach((c,i)=>{
+    const w=el('div','cause');const top=el('div','top');top.appendChild(el('span','',`${i+1}. ${c.name}`));top.appendChild(el('span','',Math.round(c.weight*100)+'%'));w.appendChild(top);
+    const bar=el('div','bar');const f=el('i');f.style.width=Math.round(c.weight*100)+'%';bar.appendChild(f);w.appendChild(bar);
+    const ul=el('ul','ev');c.findings.forEach(t=>ul.appendChild(el('li','',t)));w.appendChild(ul);
+    if(c.citations.length){const p=el('div','muted','Sources: ');c.citations.forEach(ref=>{const ch=el('button','chip',ref);ch.onclick=()=>showSrc(ref,w);p.appendChild(ch);p.appendChild(document.createTextNode(' '))});w.appendChild(p)}
+    box.appendChild(w)});
+  const ruled=v.ranked.filter(x=>x.score<=0.05).map(x=>x.name);$('ruled').textContent=ruled.length?'Ruled out or no evidence: '+ruled.join(', ')+'.':'';
+  const m=r.memory;const mc=$('memCard');
+  if(m){mc.classList.remove('hidden');const mb=$('mem');mb.replaceChildren();
+    if(m.note)mb.appendChild(el('p','muted',m.note));
+    else if(m.prior_cases.length){mb.appendChild(el('p','',`${m.prior_cases.length} earlier case(s) for this facility and medicine: `+m.prior_cases.map(c=>`${c.month} ${c.cause}`).join('; ')+'.'));if(m.repeat_issue)mb.appendChild(el('div','banner warn','Repeat issue: the same cause was found here before.'))}
+    else mb.appendChild(el('p','muted','No earlier cases remembered here. This case is now stored.'))}else mc.classList.add('hidden');
+  const a=r.action,ac=$('actCard');
+  if(a){ac.classList.remove('hidden');$('memo').value=a.memo;$('memo').readOnly=true;$('fix').textContent='Process fix: '+a.process_fix;$('edit').textContent='Edit'}else ac.classList.add('hidden');
+}
+async function showSrc(ref,parent){
+  const old=parent.querySelector('.src');if(old)old.remove();
+  const d=await api('/api/source?ref='+encodeURIComponent(ref));const pre=el('div','src',d.row?Object.entries(d.row).map(([k,v])=>k+': '+v).join('\n'):'Not a data row (web source): '+ref);parent.appendChild(pre)}
+$('go').onclick=run;
+$('edit').onclick=()=>{const m=$('memo');m.readOnly=!m.readOnly;$('edit').textContent=m.readOnly?'Edit':'Lock';if(!m.readOnly)m.focus()};
+async function decide(kind){
+  const r=cur.result;const body={decision:kind,question:r.question,memo:$('memo').value,edited:$('memo').value!==r.action.memo,memory_id:r.memory&&r.memory.stored_id};
+  const d=await api('/api/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  $('decided').textContent=(kind==='approve'?'Approved':'Rejected')+' and recorded. '+(d.note||'')}
+$('approve').onclick=()=>decide('approve');$('reject').onclick=()=>decide('reject');
+init();
+</script>
+</body>
+</html>

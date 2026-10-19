@@ -3,6 +3,7 @@
 Every function returns: {hypothesis, score (0..1), findings [str], citations [str]}.
 Nothing here reads the planted cause; it only reads the tables.
 """
+from datetime import date
 from statistics import mean, median
 
 from .months import shift
@@ -26,25 +27,25 @@ def _baseline(store, ctx, window):
     months = [shift(ctx["month"], -k) for k in range(1, window + 1)]
     marks = ",".join("?" * len(months))
     rows = store.query(
-        f"SELECT consumed FROM stock WHERE facility_id=? AND commodity=? AND month IN ({marks})",
+        f"SELECT consumed FROM {store.t('stock')} WHERE facility_id=? AND commodity=? AND month IN ({marks})",
         (ctx["facility_id"], ctx["commodity"], *months))
     return mean(r["consumed"] for r in rows) if rows else 0.0
 
 
 def _row(store, ctx, month):
-    r = store.query("SELECT * FROM stock WHERE facility_id=? AND commodity=? AND month=?",
+    r = store.query(f"SELECT * FROM {store.t('stock')} WHERE facility_id=? AND commodity=? AND month=?",
                     (ctx["facility_id"], ctx["commodity"], month))
     return r[0] if r else None
 
 
 def _order(store, ctx):
-    r = store.query("SELECT * FROM orders WHERE facility_id=? AND commodity=? AND month=?",
+    r = store.query(f"SELECT * FROM {store.t('orders')} WHERE facility_id=? AND commodity=? AND month=?",
                     (ctx["facility_id"], ctx["commodity"], shift(ctx["month"], -1)))
     return r[0] if r else None
 
 
 def _fills(store, ctx, month, exclude_target=True):
-    sql = "SELECT qty_delivered*1.0/qty_requested AS f FROM orders WHERE commodity=? AND month=? AND qty_requested>0"
+    sql = f"SELECT qty_delivered*1.0/qty_requested AS f FROM {store.t('orders')} WHERE commodity=? AND month=? AND qty_requested>0"
     params = [ctx["commodity"], month]
     if exclude_target:
         sql += " AND facility_id<>?"
@@ -68,7 +69,7 @@ def late_order(store, ctx, window):
     if not o:
         return {"hypothesis": "late_order", "score": 0.6,
                 "findings": ["No order record found for the cycle before the stock-out."], "citations": []}
-    late = store.query("SELECT CAST(julianday(?) - julianday(?) AS INTEGER) AS d", (o["order_date"], o["cutoff_date"]))[0]["d"]
+    late = (date.fromisoformat(str(o["order_date"])[:10]) - date.fromisoformat(str(o["cutoff_date"])[:10])).days
     slipped = o["delivery_month"] > shift(o["month"], 1)
     score = _cap(late / 10)
     f = [f"Order for {o['month']} was placed {late} day(s) {'after' if late > 0 else 'before'} the cycle cut-off ({o['cutoff_date']})."]
@@ -93,7 +94,7 @@ def payment_arrears(store, ctx, window):
     drop, cur, hist = _peer_drop(store, ctx)
     months = [shift(ctx["month"], -k) for k in range(0, 4)]
     marks = ",".join("?" * len(months))
-    pays = store.query(f"SELECT * FROM payments WHERE month IN ({marks}) AND county_arrears_flag=1", months)
+    pays = store.query(f"SELECT * FROM {store.t('payments')} WHERE month IN ({marks}) AND county_arrears_flag=1", months)
     major = [p for p in pays if p["amount_owed_kes"] >= 30_000_000]
     factor = 1.0 if major else 0.2
     f = [f"County-wide median fill for this commodity fell to {cur:.0%} from a typical {hist:.0%}."]

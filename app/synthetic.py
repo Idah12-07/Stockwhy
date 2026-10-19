@@ -28,13 +28,14 @@ def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
 
-def generate(out_dir, seed=7, n_facilities=30, plant_cause=None, target_month="2026-03", noise=1.0):
+def generate(out_dir, seed=7, n_facilities=30, plant_cause=None, target_month="2026-03", noise=1.0, history=False):
     """Write CSV/JSON files into out_dir. Returns (question, truth).
 
     question: dict(facility_id, commodity, month) or None if nothing planted.
     truth: dict(primary, contributing) or None. Keep it out of the agent's reach.
     """
-    """noise: 1.0 is the default level; 2.0 and 3.0 make demand and supplier fill much messier."""
+    """noise: 1.0 is the default level; 2.0 and 3.0 make demand and supplier fill much messier.
+    history: also plant the same simple cause at the same facility six months earlier (to demo case memory)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
@@ -61,36 +62,41 @@ def generate(out_dir, seed=7, n_facilities=30, plant_cause=None, target_month="2
          "title": "Framework tender opened", "url": "https://example.org/synthetic/2", "synthetic": True},
     ]
     truth = None
+    SIMPLE = ("late_order", "supplier_underfill", "demand_surge", "record_error", "expiry", "multi")
     if target:
         pf, pc = target
-        if plant_cause == "late_order":
-            late.add((pf, pc, tM - 1)); truth = ("late_order", [])
-        elif plant_cause == "supplier_underfill":
-            fill_over[(pf, pc, tM - 1)] = 0.15; truth = ("supplier_underfill", [])
-        elif plant_cause == "payment_arrears":
-            arrears_months = {tM - 3, tM - 2, tM - 1, tM}
-            for f in facilities:
-                for t in (tM - 2, tM - 1):
-                    fill_over[(f, pc, t)] = rng.uniform(0.3, 0.5)
-            truth = ("payment_arrears", [])
-        elif plant_cause == "demand_surge":
-            demand_mult[(pf, pc, tM)] = 2.2; truth = ("demand_surge", [])
-        elif plant_cause == "record_error":
-            reported_over[(pf, pc, tM)] = 18; truth = ("record_error", [])
-        elif plant_cause == "expiry":
-            waste_start[(pf, pc, tM)] = 0.55; fill_over[(pf, pc, tM - 1)] = 0.7
-            truth = ("expiry", ["supplier_underfill"])
-        elif plant_cause == "national_disruption":
-            for f in facilities:
-                fill_over[(f, pc, tM - 1)] = rng.uniform(0.03, 0.15)
-            notes.append({"month": shift(target_month, -1), "commodity": pc,
-                          "source": "KEMSA notice (synthetic)",
-                          "title": f"Supply interruption affecting {pc}",
-                          "url": "https://example.org/synthetic/national", "synthetic": True})
-            truth = ("national_disruption", [])
-        elif plant_cause == "multi":
-            late.add((pf, pc, tM - 1)); demand_mult[(pf, pc, tM)] = 1.5
-            truth = ("late_order", ["demand_surge"])
+        plant_months = [tM]
+        if history and plant_cause in SIMPLE:
+            plant_months.append(tM - 6)  # the same problem happened here half a year earlier
+        for tt in plant_months:
+            if plant_cause == "late_order":
+                late.add((pf, pc, tt - 1)); truth = ("late_order", [])
+            elif plant_cause == "supplier_underfill":
+                fill_over[(pf, pc, tt - 1)] = 0.15; truth = ("supplier_underfill", [])
+            elif plant_cause == "payment_arrears":
+                arrears_months = {tM - 3, tM - 2, tM - 1, tM}
+                for f in facilities:
+                    for t in (tM - 2, tM - 1):
+                        fill_over[(f, pc, t)] = rng.uniform(0.3, 0.5)
+                truth = ("payment_arrears", [])
+            elif plant_cause == "demand_surge":
+                demand_mult[(pf, pc, tt)] = 2.2; truth = ("demand_surge", [])
+            elif plant_cause == "record_error":
+                reported_over[(pf, pc, tt)] = 18; truth = ("record_error", [])
+            elif plant_cause == "expiry":
+                waste_start[(pf, pc, tt)] = 0.55; fill_over[(pf, pc, tt - 1)] = 0.7
+                truth = ("expiry", ["supplier_underfill"])
+            elif plant_cause == "national_disruption":
+                for f in facilities:
+                    fill_over[(f, pc, tM - 1)] = rng.uniform(0.03, 0.15)
+                notes.append({"month": shift(target_month, -1), "commodity": pc,
+                              "source": "KEMSA notice (synthetic)",
+                              "title": f"Supply interruption affecting {pc}",
+                              "url": "https://example.org/synthetic/national", "synthetic": True})
+                truth = ("national_disruption", [])
+            elif plant_cause == "multi":
+                late.add((pf, pc, tt - 1)); demand_mult[(pf, pc, tt)] = 1.5
+                truth = ("late_order", ["demand_surge"])
 
     stock_rows, order_rows = [], []
     sid = oid = 0

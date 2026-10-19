@@ -31,5 +31,17 @@ def render(result):
     a = result["action"]
     if a:
         lines += ["## Draft action (needs human approval)", "", a["memo"], "", f"Process fix: {a['process_fix']}", ""]
+    mem = result.get("memory")
+    if mem:
+        lines += ["## Case memory (Meterless H-MEM)", ""]
+        if mem.get("note"):
+            lines.append(mem["note"])
+        elif mem["prior_cases"]:
+            lines.append(f"{len(mem['prior_cases'])} earlier case(s) for this facility and medicine: " + "; ".join(f"{c['month']} {c['cause']} ({c['memory_id']})" for c in mem["prior_cases"]) + ".")
+            if mem["repeat_issue"]:
+                lines.append("**This is a repeat issue:** the same cause was found before.")
+        else:
+            lines.append("No earlier cases remembered for this facility and medicine. This case is now stored.")
+        lines.append("")
     lines += [f"_Run time: {result['seconds']}s. Data is synthetic. Contribution shares are estimates._"]
     return "\n".join(lines)

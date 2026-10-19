@@ -1,0 +1,9 @@
+{
+  "name": "stockwhy-meterless-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thin JSON-lines bridge so the Python app can use Meterless H-MEM.",
+  "scripts": { "bridge": "tsx bridge.ts" },
+  "devDependencies": { "tsx": "^4.19.0" }
+}

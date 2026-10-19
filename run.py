@@ -15,6 +15,7 @@ from app.pipeline import run_investigation
 from app.report import render
 from app.store import get_store
 from app.synthetic import CAUSES, generate
+from app.config import load_env
 from app.trace import Trace
 
 DEFAULT_DIR = Path("data/generated/default")
@@ -30,7 +31,7 @@ def resolve(args):
         name = f"s{scen['seed']}_{scen.get('plant_cause') or 'none'}"
         data_dir = Path("data/generated") / name
         planted_q, _truth = generate(data_dir, seed=scen["seed"], plant_cause=scen.get("plant_cause"),
-                                     n_facilities=scen.get("n_facilities", 30), noise=scen.get("noise", 1.0))  # truth is discarded here on purpose
+                                     n_facilities=scen.get("n_facilities", 30), noise=scen.get("noise", 1.0), history=scen.get("history", False))  # truth is discarded here on purpose
         question = question or planted_q
     else:
         data_dir = Path(spec.get("dataset") or args.dataset or DEFAULT_DIR)
@@ -53,12 +54,38 @@ def main():
     ap.add_argument("--mode", choices=["offline", "live"], default="offline",
                     help="offline: local data adapter; live: sponsor integrations (Zetaris, Meterless, NVIDIA, Bright Data)")
     ap.add_argument("--json", action="store_true", help="print JSON instead of the readable report")
+    ap.add_argument("--memory", choices=["off", "meterless", "auto"], default=None,
+                    help="case memory via Meterless H-MEM (default: off on the command line, auto with --serve)")
+    ap.add_argument("--serve", action="store_true", help="start the one-page web UI instead of printing a report")
+    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 inside Docker")
     args = ap.parse_args()
 
-    data_dir, question = resolve(args)
+    load_env()
+    if args.serve and not (args.input or args.scenario_seed is not None or args.facility):
+        args.dataset = args.dataset or str(DEFAULT_DIR)
+        if not (Path(args.dataset) / "stock.csv").exists():
+            generate(args.dataset, seed=7, plant_cause="late_order", history=True)  # seeded demo county
+        data_dir, question = Path(args.dataset), None
+    else:
+        data_dir, question = resolve(args)
     store = get_store(data_dir, args.mode)
+    memory = None
+    want = args.memory or ("auto" if args.serve else "off")
+    if want != "off":
+        from app.tools.meterless_memory import MemoryUnavailable, MeterlessMemory
+        try:
+            memory = MeterlessMemory()
+        except MemoryUnavailable as exc:
+            if want == "meterless":
+                sys.exit(f"Memory requested but unavailable: {exc}")
+            print(f"[memory off: {exc}]", file=sys.stderr)
+    if args.serve:
+        from app.ui.server import serve
+        serve(store, memory, data_dir, args.port, args.host)
+        return
     trace = Trace("logs", "run")
-    result = run_investigation(store, question, trace)
+    result = run_investigation(store, question, trace, memory=memory)
     md = render(result)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     Path("logs").mkdir(exist_ok=True)
