@@ -28,17 +28,20 @@ def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
 
-def generate(out_dir, seed=7, n_facilities=30, plant_cause=None, target_month="2026-03", noise=1.0, history=False):
+def generate(out_dir, seed=7, n_facilities=30, plant_cause=None, target_month="2026-03", noise=1.0, history=False, events=None, fill_mean=0.92):
     """Write CSV/JSON files into out_dir. Returns (question, truth).
 
     question: dict(facility_id, commodity, month) or None if nothing planted.
     truth: dict(primary, contributing) or None. Keep it out of the agent's reach.
     """
     """noise: 1.0 is the default level; 2.0 and 3.0 make demand and supplier fill much messier.
-    history: also plant the same simple cause at the same facility six months earlier (to demo case memory)."""
+    fill_mean: typical share of an order the supplier delivers (0.92 by default; real county studies report about 0.5-0.6).
+    history: also plant the same simple cause at the same facility six months earlier (to demo case memory).
+    events: optional list of (facility_id, commodity, month_index, cause) to plant MANY labelled stock-outs in one county."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
+    fscale = fill_mean / 0.92
     facilities = [f"FAC-{i:03d}" for i in range(1, n_facilities + 1)]
     coords = {f: (-1.29 + rng.uniform(-0.45, 0.45), 36.82 + rng.uniform(-0.45, 0.45)) for f in facilities}
     base = {(f, c): rng.uniform(80, 400) for f in facilities for c in COMMODITIES}
@@ -98,12 +101,33 @@ def generate(out_dir, seed=7, n_facilities=30, plant_cause=None, target_month="2
                 late.add((pf, pc, tt - 1)); demand_mult[(pf, pc, tt)] = 1.5
                 truth = ("late_order", ["demand_surge"])
 
+    thin_pairs = set()
+    if target and plant_cause not in (None, "record_error"):
+        thin_pairs.add(target)
+    for (ef, ec, et, ecause) in (events or []):
+        if ecause == "late_order":
+            late.add((ef, ec, et - 1))
+        elif ecause == "supplier_underfill":
+            fill_over[(ef, ec, et - 1)] = 0.15
+        elif ecause == "demand_surge":
+            demand_mult[(ef, ec, et)] = 2.2
+        elif ecause == "record_error":
+            reported_over[(ef, ec, et)] = 18
+        elif ecause == "expiry":
+            waste_start[(ef, ec, et)] = 0.55; fill_over[(ef, ec, et - 1)] = 0.7
+        elif ecause == "multi":
+            late.add((ef, ec, et - 1)); demand_mult[(ef, ec, et)] = 1.5
+        else:
+            raise ValueError("events support only the facility-level causes, got " + str(ecause))
+        if ecause != "record_error":
+            thin_pairs.add((ef, ec))
+
     stock_rows, order_rows = [], []
     sid = oid = 0
     for f in facilities:
         for c in COMMODITIES:
             b = base[(f, c)]
-            thin = target == (f, c) and plant_cause not in (None, "record_error")
+            thin = (f, c) in thin_pairs
             cover = 1.6 if thin else 2.5
             opening = cover * b
             received = [0.0] * (N_MONTHS + 3)
@@ -117,8 +141,9 @@ def generate(out_dir, seed=7, n_facilities=30, plant_cause=None, target_month="2
                 is_late = (f, c, t) in late
                 order_date = cutoff + timedelta(days=rng.randint(9, 12)) if is_late else cutoff - timedelta(days=rng.randint(0, 6))
                 proj_closing = opening - w + rec - b
-                qty_req = max(0, round((cover * b - proj_closing) / 0.92))
-                fill = fill_over.get((f, c, t), _clamp(rng.gauss(0.92, 0.05 * noise), 0.6, 1.0))
+                qty_req = max(0, round((cover * b - proj_closing) / fill_mean))
+                gfill = _clamp(rng.gauss(fill_mean, 0.05 * noise), 0.6 * fscale, 1.0)
+                fill = fill_over[(f, c, t)] * fscale if (f, c, t) in fill_over else gfill
                 qty_del = round(qty_req * fill)
                 d_idx = t + (2 if is_late else 1)
                 received[d_idx] += qty_del
@@ -160,3 +185,31 @@ def generate(out_dir, seed=7, n_facilities=30, plant_cause=None, target_month="2
     question = {"facility_id": target[0], "commodity": target[1], "month": target_month} if target else None
     truth_d = {"primary": truth[0], "contributing": truth[1]} if truth else None
     return question, truth_d
+
+
+EVENT_CAUSES = ["late_order", "supplier_underfill", "demand_surge", "record_error", "expiry", "multi"]
+
+
+def generate_many(out_dir, seed=7, n_facilities=150, share=0.3, noise=1.0, fill_mean=0.92):
+    """A realistic county: about `share` of facility-medicine pairs have one stock-out with a known cause.
+
+    Real studies find roughly 20-50% of facilities report a stock-out of a tracer medicine over six months
+    (ThinkWell 2024), so a county with one stock-out is far too clean. Returns a list of labelled events.
+    Only facility-level causes are planted (county-wide causes such as arrears are one-per-county).
+    """
+    rng = random.Random(seed * 7919 + 1)
+    pairs = [(f"FAC-{i:03d}", c) for i in range(1, n_facilities + 1) for c in COMMODITIES]
+    chosen = rng.sample(pairs, int(len(pairs) * share))
+    ev = [(f, c, rng.randrange(8, N_MONTHS - 1), rng.choice(EVENT_CAUSES)) for f, c in chosen]
+    generate(out_dir, seed=seed, n_facilities=n_facilities, noise=noise, events=ev, fill_mean=fill_mean)
+    # keep only events that really produced a reported stock-out
+    rows = {}
+    with open(Path(out_dir) / "stock.csv", newline="") as fh:
+        for r in csv.DictReader(fh):
+            rows[(r["facility_id"], r["commodity"], r["month"])] = int(r["reported_stockout_days"])
+    labelled = []
+    for f, c, t, cause in ev:
+        if rows.get((f, c, label(t)), 0) > 0:
+            primary, contrib = ("late_order", ["demand_surge"]) if cause == "multi" else (cause, ["supplier_underfill"] if cause == "expiry" else [])
+            labelled.append({"facility_id": f, "commodity": c, "month": label(t), "primary": primary, "contributing": contrib})
+    return labelled

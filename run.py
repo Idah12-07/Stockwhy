@@ -7,6 +7,7 @@
 """
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -62,6 +63,9 @@ def main():
     args = ap.parse_args()
 
     load_env()
+    if os.environ.get("SAMPLE_MODE", "").strip().lower() in ("1", "true", "yes"):
+        args.mode = "offline"  # judges can force the local fallback if an outside service is unavailable
+        print("[SAMPLE_MODE: using the local data adapter; Zetaris is skipped]", file=sys.stderr)
     if args.serve and not (args.input or args.scenario_seed is not None or args.facility):
         args.dataset = args.dataset or str(DEFAULT_DIR)
         if not (Path(args.dataset) / "stock.csv").exists():
